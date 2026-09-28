@@ -1,0 +1,13 @@
+{
+  "name": "portal-visual-jury-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "jury": "node runner.mjs",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}
