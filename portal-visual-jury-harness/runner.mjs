@@ -35,6 +35,9 @@ try {
     const page = await context.newPage()
     const consoleErrors = []
     const pageErrors = []
+    const failedRequests = []
+    const badResponses = []
+    const workers = []
 
     page.on('console', (message) => {
       const text = message.text()
@@ -43,6 +46,33 @@ try {
       }
     })
     page.on('pageerror', (error) => pageErrors.push(error.message))
+    page.on('requestfailed', (request) => {
+      const url = request.url()
+      if (!/vercel\.live|analytics|speed-insights|favicon/i.test(url)) {
+        failedRequests.push({
+          url: url.replace(/([?&]_vercel_share=)[^&]+/g, '$1<redacted>'),
+          error: request.failure()?.errorText ?? 'request failed',
+          type: request.resourceType(),
+        })
+      }
+    })
+    page.on('response', (response) => {
+      const status = response.status()
+      if (status >= 300) {
+        const url = response.url()
+        if (!/vercel\.live|analytics|speed-insights|favicon/i.test(url)) {
+          badResponses.push({
+            status,
+            url: url.replace(/([?&]_vercel_share=)[^&]+/g, '$1<redacted>'),
+            type: response.request().resourceType(),
+          })
+        }
+      }
+    })
+    page.on('worker', (worker) => {
+      const url = worker.url()
+      workers.push(url.replace(/([?&]_vercel_share=)[^&]+/g, '$1<redacted>'))
+    })
 
     // The share token is consumed only by the browser to establish the Preview cookie.
     await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 120_000 })
@@ -127,6 +157,18 @@ try {
     if (!(await geoMap.isVisible())) throw new Error(`${name}: geo map invisible`)
     await geoMap.screenshot({ path: `public/${name}-map.png` })
 
+    if (pageErrors.length || consoleErrors.length) {
+      console.error(JSON.stringify({
+        visualJuryDiagnostic: true,
+        name,
+        pageErrors,
+        consoleErrors,
+        failedRequests,
+        badResponses,
+        workers,
+        cookieNames: (await context.cookies()).map((cookie) => cookie.name).sort(),
+      }))
+    }
     if (pageErrors.length) throw new Error(`${name}: page errors: ${pageErrors.join(' | ')}`)
     if (consoleErrors.length) throw new Error(`${name}: console errors: ${consoleErrors.join(' | ')}`)
 
@@ -145,6 +187,9 @@ try {
       overflow,
       consoleErrors,
       pageErrors,
+      failedRequests,
+      badResponses,
+      workers,
       screenshots: {
         hero: `${name}-hero.png`,
         map: `${name}-map.png`,
