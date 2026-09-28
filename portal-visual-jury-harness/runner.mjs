@@ -39,10 +39,42 @@ try {
     const badResponses = []
     const workers = []
 
-    page.on('console', (message) => {
+    page.on('console', async (message) => {
       const text = message.text()
       if (message.type() === 'error' && !/vercel\.live|analytics|speed-insights/i.test(text)) {
-        consoleErrors.push(text)
+        const args = await Promise.all(
+          message.args().map(async (arg) => {
+            try {
+              return await arg.evaluate((value) => {
+                if (value instanceof Error) {
+                  return {
+                    kind: 'Error',
+                    name: value.name,
+                    message: value.message,
+                    stack: value.stack ?? null,
+                  }
+                }
+                if (value && typeof value === 'object') {
+                  return {
+                    kind: 'object',
+                    name: 'name' in value ? String(value.name) : null,
+                    message: 'message' in value ? String(value.message) : null,
+                    stack: 'stack' in value ? String(value.stack) : null,
+                    string: String(value),
+                  }
+                }
+                return { kind: typeof value, string: String(value) }
+              })
+            } catch {
+              return { kind: 'unserializable' }
+            }
+          }),
+        )
+        consoleErrors.push({
+          text,
+          location: message.location(),
+          args,
+        })
       }
     })
     page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -170,7 +202,7 @@ try {
       }))
     }
     if (pageErrors.length) throw new Error(`${name}: page errors: ${pageErrors.join(' | ')}`)
-    if (consoleErrors.length) throw new Error(`${name}: console errors: ${consoleErrors.join(' | ')}`)
+    if (consoleErrors.length) throw new Error(`${name}: console errors: ${JSON.stringify(consoleErrors)}`)
 
     results.push({
       name,
